@@ -1,0 +1,30 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on tags like v1.0.0
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build zipapp
+        run: |
+          # Package the src directory into a single executable .pyz file
+          # (_pyz:run propagates exit codes, plain cli:main would swallow them)
+          python -m zipapp src -m "cloudsync._pyz:run" -p "/usr/bin/env python3" -o cloudsync.pyz
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cloudsync.pyz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
