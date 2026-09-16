@@ -22,6 +22,9 @@ def test_units_render_contents():
     base = config.cloud_base()
     assert f"OnCalendar=*:0/{interval}" in rendered["cloudsync-sync-all.timer"]
     assert f"PathModified={base}/%i" in rendered["cloudsync-watch@.path"]
+    # path unit must target the sync service explicitly — without Unit=,
+    # systemd looks for cloudsync-watch@%i.service (does not exist)
+    assert "Unit=cloudsync-sync@%i.service" in rendered["cloudsync-watch@.path"]
     assert "sync %i" in rendered["cloudsync-sync@.service"]
     assert f"ListenStream=0.0.0.0:{port}" in rendered["cloudsync-api.socket"]
     assert "api serve" in rendered["cloudsync-api.service"]

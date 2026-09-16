@@ -35,10 +35,10 @@ def _is_root() -> bool:
     return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
-def _sysctl(*args: str):
+def _sysctl(*args: str, **kwargs):
     """systemctl as root, `systemctl --user` otherwise."""
     prefix = ["systemctl"] if _is_root() else ["systemctl", "--user"]
-    return util.run(prefix + list(args))
+    return util.run(prefix + list(args), **kwargs)
 
 
 def _cli_path(settings: Settings) -> str:
@@ -94,9 +94,15 @@ Description=cloudsync: watch local changes for account %i
 
 [Path]
 PathModified={base}/%i
-# inotify bursts are collapsed by the engine (debounce + per-account flock)
-TriggerLimitIntervalSec=30s
-TriggerLimitBurst=1
+# inotify bursts are collapsed by the engine (debounce + per-account flock);
+# burst limits exist only to stop runaway event storms, NOT to throttle
+# normal activity — a big download/first-fill emits thousands of events and
+# hitting the limit latches the unit 'failed' (trigger-limit-hit) until reset
+TriggerLimitIntervalSec=1s
+TriggerLimitBurst=200
+# explicit: otherwise systemd looks for cloudsync-watch@%i.service, which
+# does not exist (the sync worker is cloudsync-sync@%i.service)
+Unit=cloudsync-sync@%i.service
 
 [Install]
 WantedBy={wanted_by}

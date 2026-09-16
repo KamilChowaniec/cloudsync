@@ -24,9 +24,18 @@ from urllib.parse import parse_qs, urlparse
 SYNCHRONOUS_TIMEOUT = 7200  # seconds; a long bisync finishes within the request
 
 
-def _cli() -> list[str]:
-    """Invoke the CLI as a subprocess so each trigger is isolated."""
-    return [sys.executable, "-m", "cloudsync.cli"]
+def _child_env() -> dict[str, str]:
+    """Environment for the sync subprocess, carrying this process's sys.path.
+
+    The API server runs in whatever context the CLI was launched from — a
+    zipapp, a checkout, a pip install. A plain `python -m cloudsync` child
+    has no way to know that; but copying sys.path into PYTHONPATH makes the
+    child resolve `cloudsync.*` identically to the parent in every case
+    (zipimport handles the archive path; a checkout contributes its src/).
+    """
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(sys.path)
+    return env
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -59,7 +68,8 @@ class Handler(BaseHTTPRequestHandler):
             cmd.append(account)
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
-                                  timeout=SYNCHRONOUS_TIMEOUT)
+                                  timeout=SYNCHRONOUS_TIMEOUT,
+                                  env=_child_env())
             ok = proc.returncode == 0
             self._json(200 if ok else 500, {
                 "account": account or "*",
@@ -75,11 +85,17 @@ class Handler(BaseHTTPRequestHandler):
 
 def make_server() -> ThreadingHTTPServer:
     if os.environ.get("LISTEN_FDS"):  # systemd socket activation
-        server = ThreadingHTTPServer.__new__(ThreadingHTTPServer)
+        # bind_and_activate=False still runs BaseServer.__init__ (which sets
+        # up __is_shut_down etc.); the raw __new__ trick crashes serve_forever
+        # on Python 3.13 with 'no attribute _BaseServer__is_shut_down'
+        server = ThreadingHTTPServer(
+            ("0.0.0.0", 0), Handler, bind_and_activate=False,
+        )
         server.daemon_threads = True
-        server.allow_reuse_address = True
+        server.socket.close()  # drop the dummy socket; adopt fd 3
         server.socket = socket.socket(fileno=3)
         server.server_address = server.socket.getsockname()
+        server.server_port = server.server_address[1]
         return server
     from .config import load_settings
     port = int(load_settings().get("api", "port", default=8788))

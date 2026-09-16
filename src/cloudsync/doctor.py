@@ -181,8 +181,8 @@ def _units_checks(settings: Settings, store: AccountStore) -> list[Check]:
         return checks
 
     def is_active(unit: str) -> bool:
-        return util.run(
-            ["systemctl", "is-active", unit], capture_output=True, text=True,
+        return units._sysctl(
+            "is-active", unit, capture_output=True, text=True,
         ).stdout.strip() == "active"
 
     if is_active("cloudsync-sync-all.timer"):
